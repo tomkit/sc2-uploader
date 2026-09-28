@@ -179,26 +179,70 @@ func alreadyUploaded(hashes []string) (map[string]existing, error) {
 	return out.Found, nil
 }
 
+// ClaimResult is the site's answer to a claim. AutoCoach is set when the
+// account has a coach subscription: whether this game was queued for an
+// AI Coach analysis, and if not, why.
+type ClaimResult struct {
+	Claimed   bool `json:"claimed"`
+	AutoCoach *struct {
+		Queued bool   `json:"queued"`
+		Reason string `json:"reason"`
+	} `json:"autoCoach"`
+}
+
 // claim attributes an upload to the linked account (proof: the file hash).
-func claim(token, replayID, fileHash string) error {
-	payload, _ := json.Marshal(map[string]string{"id": replayID, "fileHash": fileHash})
+// source is "new" for a game played while the uploader was running and
+// "backfill" for anything older: only new games are auto-analyzed.
+func claim(token, replayID, fileHash, source string) (*ClaimResult, error) {
+	payload, _ := json.Marshal(map[string]string{"id": replayID, "fileHash": fileHash, "source": source})
 	req, _ := http.NewRequest("POST", serverBase()+"/api/replays/claim", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", userAgent())
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer res.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(res.Body, 1<<16))
 	if res.StatusCode == 401 {
-		return errors.New("account link expired or revoked; run `sc2-uploader link` again")
+		return nil, errors.New("account link expired or revoked; run `sc2-uploader link` again")
 	}
 	if res.StatusCode != 200 {
-		b, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
-		return fmt.Errorf("claim failed (%d): %s", res.StatusCode, jsonError(b))
+		return nil, fmt.Errorf("claim failed (%d): %s", res.StatusCode, jsonError(b))
 	}
-	return nil
+	var out ClaimResult
+	_ = json.Unmarshal(b, &out)
+	return &out, nil
+}
+
+// reportToons tells the site which toons are on this computer, which is
+// what ties "you" in an uploaded game to the linked account (and lets a
+// coach subscription analyze your games). Returns the ids another account
+// already linked.
+func reportToons(token string, ids []string) (taken []string, err error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	payload, _ := json.Marshal(map[string][]string{"toons": ids})
+	req, _ := http.NewRequest("POST", serverBase()+"/api/uploader/toons", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("User-Agent", userAgent())
+	res, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(res.Body, 1<<16))
+	if res.StatusCode != 200 {
+		return nil, fmt.Errorf("toon report failed (%d): %s", res.StatusCode, jsonError(b))
+	}
+	var out struct {
+		Taken []string `json:"taken"`
+	}
+	_ = json.Unmarshal(b, &out)
+	return out.Taken, nil
 }
 
 // ---- Account link: OAuth 2.0 device authorization grant (RFC 8628) ----

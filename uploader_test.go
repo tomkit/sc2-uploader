@@ -31,6 +31,8 @@ type fakeSite struct {
 	names   []string
 	mode    atomic.Value    // "", "429", "html", "reject"
 	onSite  map[string]bool // hashes /api/replays/exists reports as uploaded
+	sources []string        // claim sources, in order
+	toons   []string
 	checks  atomic.Int32
 	claimed atomic.Int32
 }
@@ -101,9 +103,26 @@ func newFakeSite(t *testing.T) *fakeSite {
 				w.WriteHeader(401)
 				return
 			}
+			var body struct {
+				Source string `json:"source"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			f.mu.Lock()
+			f.sources = append(f.sources, body.Source)
+			f.mu.Unlock()
 			f.claimed.Add(1)
 			w.Header().Set("Content-Type", "application/json")
-			io.WriteString(w, `{"ok":true,"claimed":true}`)
+			io.WriteString(w, `{"ok":true,"claimed":true,"autoCoach":{"queued":true}}`)
+		case "/api/uploader/toons":
+			var body struct {
+				Toons []string `json:"toons"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			f.mu.Lock()
+			f.toons = append(f.toons, body.Toons...)
+			f.mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"linked":[],"taken":[]}`)
 		default:
 			w.WriteHeader(404)
 		}
@@ -254,7 +273,7 @@ func TestUploadErrors(t *testing.T) {
 	s.Since = time.Now().Add(-time.Minute)
 	u, _ := newUploader(s, []string{dir}, noBackfill)
 	os.WriteFile(p, data, 0o644)
-	u.handle(p)
+	u.handle(p, "new")
 	if rec, ok := s.handled(sha256Hex(data)); !ok || rec.Rejected == "" {
 		t.Fatalf("rejection not recorded: %+v", rec)
 	}
@@ -353,12 +372,50 @@ func TestHandledFilesAreNotReHashedOnRescan(t *testing.T) {
 	s.Since = time.Now().Add(-time.Hour)
 	u, _ := newUploader(s, []string{dir}, noBackfill)
 	defer u.watcher.Close()
-	u.handle(p)
+	u.handle(p, "new")
 	u.scan([]string{dir})
 	u.mu.Lock()
 	n := len(u.pending)
 	u.mu.Unlock()
 	if n != 0 {
 		t.Fatalf("rescan re-queued a handled file")
+	}
+}
+
+func TestClaimsSayNewOrBackfill(t *testing.T) {
+	site, dir := setup(t)
+	old := filepath.Join(dir, "old.SC2Replay")
+	os.WriteFile(old, fakeReplay("old"), 0o644)
+	past := time.Now().Add(-time.Hour)
+	os.Chtimes(old, past, past)
+	s, _ := loadState()
+	s.Since = time.Now().Add(-time.Minute)
+	s.Token = "sc2_test"
+	s.TokenExpiresAt = time.Now().Add(time.Hour)
+	_, stop := startDaemon(t, s, dir, Options{Backfill: true, BackfillEvery: 100 * time.Millisecond, BackfillPerDay: 5})
+	os.WriteFile(filepath.Join(dir, "new.SC2Replay"), fakeReplay("new"), 0o644)
+	waitFor(t, "two claims", func() bool { return site.claimed.Load() == 2 })
+	stop()
+	site.mu.Lock()
+	defer site.mu.Unlock()
+	got := map[string]string{}
+	for i, n := range site.names {
+		got[n] = site.sources[i]
+	}
+	if got["new.SC2Replay"] != "new" || got["old.SC2Replay"] != "backfill" {
+		t.Fatalf("claim sources %v (names %v)", site.sources, site.names)
+	}
+}
+
+func TestToonsComeFromTheFolderLayout(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "891556", "1-S2-1-1240773", "Replays", "Multiplayer")
+	os.MkdirAll(dir, 0o755)
+	got := toons([]string{dir})
+	if len(got) != 1 || got[0] != "1-S2-1-1240773" {
+		t.Fatalf("toons from --dir = %v", got)
+	}
+	if got := toons([]string{t.TempDir()}); len(got) != 0 {
+		t.Fatalf("a folder outside the SC2 layout gave toons %v", got)
 	}
 }

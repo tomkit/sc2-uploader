@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -67,6 +68,44 @@ func watchRoots(explicit []string) (dirs []string, accountRoots []string) {
 		}
 	}
 	return dirs, accountRoots
+}
+
+var toonRe = regexp.MustCompile(`^[0-9]+-S2-[0-9]+-[0-9]+$`)
+
+// toons lists the StarCraft II toon ids on this computer: the per-region
+// folder names under each account (`<Accounts>/<account>/1-S2-1-1240773`),
+// which are the ids replays record for each player. With --dir folders,
+// the toon is the folder two levels up from Replays/Multiplayer.
+func toons(explicit []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(name string) {
+		if toonRe.MatchString(name) && !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	if len(explicit) > 0 {
+		for _, d := range explicit {
+			add(filepath.Base(filepath.Dir(filepath.Dir(filepath.Clean(d)))))
+		}
+		return out
+	}
+	for _, root := range accountsRoots() {
+		accounts, _ := os.ReadDir(root)
+		for _, a := range accounts {
+			if !a.IsDir() {
+				continue
+			}
+			ts, _ := os.ReadDir(filepath.Join(root, a.Name()))
+			for _, t := range ts {
+				if t.IsDir() {
+					add(t.Name())
+				}
+			}
+		}
+	}
+	return out
 }
 
 // stateDir holds the config, the upload record, the log and the lock.

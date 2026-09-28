@@ -149,6 +149,15 @@ func runDaemon(dirs []string, opts Options) int {
 		return 1
 	}
 	log.Printf("sc2-uploader %s → %s (account: %s)", version, serverBase(), linkedText(state))
+	// Tell the site which toons live here (new ones appear when you play on
+	// another region); this is how your games are recognized as yours.
+	if tok := state.token(); tok != "" {
+		if taken, err := reportToons(tok, toons(dirs)); err != nil {
+			log.Printf("couldn't register your StarCraft II accounts: %v", err)
+		} else if len(taken) > 0 {
+			log.Printf("already linked to a different StarCraft2.ai account: %s", strings.Join(taken, ", "))
+		}
+	}
 	if len(u.discover()) == 0 {
 		log.Printf("no StarCraft II replay folder found yet; checking again every %s", rescanEvery)
 	}
@@ -222,6 +231,11 @@ func link() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	if taken, err := reportToons(token, toons(nil)); err != nil {
+		fmt.Fprintln(os.Stderr, "couldn't register your StarCraft II accounts:", err)
+	} else if len(taken) > 0 {
+		fmt.Fprintf(os.Stderr, "already linked to a different StarCraft2.ai account: %s\n", strings.Join(taken, ", "))
+	}
 	fmt.Println("\nLinked. New uploads will show up under your games on StarCraft2.ai.")
 	fmt.Println("This link can't spend minerals; it only attributes uploads to you.")
 	return 0
@@ -277,7 +291,7 @@ func uploadOne(path string) int {
 	}
 	fmt.Println(res.URL)
 	if s, err := loadState(); err == nil && s.token() != "" {
-		if err := claim(s.token(), res.ID, sha256Hex(data)); err != nil {
+		if _, err := claim(s.token(), res.ID, sha256Hex(data), "backfill"); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 		}
 	}

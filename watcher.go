@@ -265,11 +265,13 @@ func (u *Uploader) drain() {
 		u.mu.Lock()
 		delete(u.pending, p)
 		u.mu.Unlock()
-		u.handle(p)
+		u.handle(p, "new")
 	}
 }
 
-func (u *Uploader) handle(path string) {
+// handle uploads one settled file. source is "new" for games played while
+// watching and "backfill" otherwise; only new games can be auto-analyzed.
+func (u *Uploader) handle(path, source string) {
 	// Settled: same size and mtime twice, settleInterval apart.
 	a, err := os.Stat(path)
 	if err != nil {
@@ -293,11 +295,11 @@ func (u *Uploader) handle(path string) {
 		u.retry(path, &RetryError{After: 10 * time.Second, Reason: "not readable yet"})
 		return
 	}
-	u.uploadData(path, b, data)
+	u.uploadData(path, b, data, source)
 }
 
 // uploadData uploads (or skips, if already handled) one settled file.
-func (u *Uploader) uploadData(path string, info os.FileInfo, data []byte) bool {
+func (u *Uploader) uploadData(path string, info os.FileInfo, data []byte, source string) bool {
 	hash := sha256Hex(data)
 	if rec, ok := u.state.handled(hash); ok {
 		u.state.markFile(path, info, hash)
@@ -323,7 +325,7 @@ func (u *Uploader) uploadData(path string, info os.FileInfo, data []byte) bool {
 	u.mu.Lock()
 	delete(u.failures, path)
 	u.mu.Unlock()
-	rec := UploadRecord{File: path, ReplayID: res.ID, URL: res.URL, At: time.Now(), Duplicate: res.Duplicate}
+	rec := UploadRecord{File: path, ReplayID: res.ID, URL: res.URL, At: time.Now(), Duplicate: res.Duplicate, Source: source}
 	u.state.record(hash, rec)
 	u.state.markFile(path, info, hash)
 	_ = u.state.save()
@@ -341,9 +343,19 @@ func (u *Uploader) claim(hash string, rec UploadRecord) {
 	if token == "" || rec.ReplayID == "" {
 		return
 	}
-	if err := claim(token, rec.ReplayID, hash); err != nil {
+	source := rec.Source
+	if source == "" {
+		source = "backfill"
+	}
+	res, err := claim(token, rec.ReplayID, hash, source)
+	if err != nil {
 		log.Printf("couldn't link %s to your account: %v", filepath.Base(rec.File), err)
 		return
+	}
+	if res.AutoCoach != nil && res.AutoCoach.Queued {
+		log.Printf("  queued for an AI Coach analysis (coach subscription)")
+	} else if res.AutoCoach != nil && source == "new" && res.AutoCoach.Reason != "not_subscribed" && res.AutoCoach.Reason != "not_your_game" {
+		log.Printf("  not auto-analyzed: %s", res.AutoCoach.Reason)
 	}
 	rec.Claimed = true
 	u.state.record(hash, rec)
@@ -410,7 +422,7 @@ func (u *Uploader) backfillStep() {
 		if err != nil || !looksLikeReplay(data) {
 			return
 		}
-		if u.uploadData(next, info, data) {
+		if u.uploadData(next, info, data, "backfill") {
 			u.state.countBackfill()
 			_ = u.state.save()
 		}
@@ -471,7 +483,7 @@ func (u *Uploader) checkBacklogBatch() {
 	skipped := 0
 	for _, it := range items {
 		if ex, ok := found[it.hash]; ok {
-			rec := UploadRecord{File: it.path, ReplayID: ex.ID, URL: ex.URL, At: time.Now(), Duplicate: true}
+			rec := UploadRecord{File: it.path, ReplayID: ex.ID, URL: ex.URL, At: time.Now(), Duplicate: true, Source: "backfill"}
 			u.state.record(it.hash, rec)
 			u.state.markFile(it.path, it.info, it.hash)
 			u.claim(it.hash, rec)
@@ -513,7 +525,7 @@ func (u *Uploader) backfill(n int) int {
 		files = files[:n]
 	}
 	for _, x := range files {
-		u.handle(x.path)
+		u.handle(x.path, "backfill")
 	}
 	return len(files)
 }

@@ -43,6 +43,8 @@ type UploadRecord struct {
 	At        time.Time `json:"at"`
 	Duplicate bool      `json:"duplicate,omitempty"`
 	Claimed   bool      `json:"claimed,omitempty"`
+	// "new" (played while the uploader ran) or "backfill".
+	Source string `json:"source,omitempty"`
 	// Rejected by the site as not a valid replay: never retried.
 	Rejected string `json:"rejected,omitempty"`
 }

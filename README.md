@@ -37,7 +37,7 @@ sc2-uploader backfill <n>                           upload your n most recent ol
 sc2-uploader upload <file>                          upload one replay
 ```
 
-`link` uses a sign-in code you enter at starcraft2.ai/auth/device. The link only attributes uploads to you. It can't spend minerals.
+`link` uses a sign-in code you enter at starcraft2.ai/auth/device. The link attributes uploads to you and tells the site which StarCraft II accounts on this computer are yours (the folder names under `Accounts/`). If you're on a [coach plan](https://www.starcraft2.ai/en/coach-plan), each new game you play is then analyzed automatically. Older replays it backfills aren't. The uploader itself can't spend minerals; the plan's monthly gold minerals pay for those analyses.
 
 Data lives in `~/Library/Application Support/sc2-uploader` on macOS and `%LOCALAPPDATA%\sc2-uploader` on Windows: `state.json` (what's been uploaded, and the optional account token, owner-only) and `uploader.log`.
 
@@ -47,7 +47,7 @@ Data lives in `~/Library/Application Support/sc2-uploader` on macOS and `%LOCALA
 
 ```sh
 go test -race ./...
-V=v0.1.0; LD="-s -w -X main.version=$V"
+V=v0.2.0; LD="-s -w -X main.version=$V"
 CGO_ENABLED=1 GOARCH=arm64 CC="clang -arch arm64"  go build -trimpath -ldflags "$LD" -o dist/sc2-uploader-darwin-arm64 .
 CGO_ENABLED=1 GOARCH=amd64 CC="clang -arch x86_64" go build -trimpath -ldflags "$LD" -o dist/sc2-uploader-darwin-amd64 .
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64            go build -trimpath -ldflags "$LD" -o dist/sc2-uploader-windows-amd64.exe .
