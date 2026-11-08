@@ -242,26 +242,45 @@ func TestLinkedUploadsAreClaimed(t *testing.T) {
 	stop()
 }
 
+func TestUploadUsesLinkedAccountLimit(t *testing.T) {
+	site, dir := setup(t)
+	site.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/parse" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer sc2_linked" {
+			t.Errorf("upload authorization = %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"id":"replay-id"}`)
+	})
+	_, err := upload(filepath.Join(dir, "linked.SC2Replay"), fakeReplay("linked"), "sc2_linked")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestUploadErrors(t *testing.T) {
 	site, dir := setup(t)
 	p := filepath.Join(dir, "x.SC2Replay")
 	data := fakeReplay("x")
 
 	site.mode.Store("429")
-	_, err := upload(p, data)
+	_, err := upload(p, data, "")
 	var re *RetryError
 	if !errors.As(err, &re) || re.After != 120*time.Second {
 		t.Fatalf("429: got %v, want a retry after Retry-After", err)
 	}
 
 	site.mode.Store("html")
-	_, err = upload(p, data)
+	_, err = upload(p, data, "")
 	if !errors.As(err, &re) || !strings.Contains(re.Reason, "bot protection") || re.After < 30*time.Minute {
 		t.Fatalf("html 403: got %v", err)
 	}
 
 	site.mode.Store("reject")
-	_, err = upload(p, data)
+	_, err = upload(p, data, "")
 	var rej *RejectedError
 	if !errors.As(err, &rej) {
 		t.Fatalf("400: got %v, want rejected", err)

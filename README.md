@@ -19,7 +19,7 @@ The installers download the binary for your platform from this repo's latest rel
 
 - **Finds the replay folders**: `Accounts/<account>/<region-toon>/Replays/Multiplayer` for every account. On macOS that's under `~/Library/Application Support/Blizzard/StarCraft II`. On Windows it's under your Documents folder, which the uploader asks Windows for, so OneDrive and redirected folders work. Campaign and challenge replays aren't uploaded.
 - **Sleeps until a game ends**: it uses the OS change feed. On macOS that's FSEvents, one stream with no per-file handles. On Windows it's `ReadDirectoryChangesW`. A 5-minute rescan backs it up. A replay is uploaded once its size has stopped changing and it passes the replay-header check.
-- **Uploads anonymously** to `POST /api/parse?summary=1`, with local dedup by SHA-256.
+- **Uploads** to `POST /api/parse?summary=1`, sending the linked account token when available so the signed-in daily limit applies. Files are deduplicated locally by SHA-256.
 - **Catches up politely on older replays**:
   - It asks the site in batches which files it already has (`POST /api/replays/exists`) and skips those without uploading.
   - The rest go up newest first, one every 90 seconds and at most 25 a day. That leaves room in the site's 50-a-day per-IP limit for new games.
@@ -47,7 +47,7 @@ Data lives in `~/Library/Application Support/sc2-uploader` on macOS and `%LOCALA
 
 ```sh
 go test -race ./...
-V=v0.2.0; LD="-s -w -X main.version=$V"
+V=v0.2.1; LD="-s -w -X main.version=$V"
 CGO_ENABLED=1 GOARCH=arm64 CC="clang -arch arm64"  go build -trimpath -ldflags "$LD" -o dist/sc2-uploader-darwin-arm64 .
 CGO_ENABLED=1 GOARCH=amd64 CC="clang -arch x86_64" go build -trimpath -ldflags "$LD" -o dist/sc2-uploader-darwin-amd64 .
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64            go build -trimpath -ldflags "$LD" -o dist/sc2-uploader-windows-amd64.exe .

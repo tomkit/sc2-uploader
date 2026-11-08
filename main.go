@@ -284,14 +284,19 @@ func uploadOne(path string) int {
 		fmt.Fprintln(os.Stderr, "not a StarCraft II replay")
 		return 1
 	}
-	res, err := upload(path, data)
+	s, stateErr := loadState()
+	token := ""
+	if stateErr == nil {
+		token = s.token()
+	}
+	res, err := upload(path, data, token)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	fmt.Println(res.URL)
-	if s, err := loadState(); err == nil && s.token() != "" {
-		if _, err := claim(s.token(), res.ID, sha256Hex(data), "backfill"); err != nil {
+	if token != "" {
+		if _, err := claim(token, res.ID, sha256Hex(data), "backfill"); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 		}
 	}

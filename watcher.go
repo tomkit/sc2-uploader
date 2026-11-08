@@ -309,7 +309,7 @@ func (u *Uploader) uploadData(path string, info os.FileInfo, data []byte, source
 		_ = u.state.save()
 		return true
 	}
-	res, err := upload(path, data)
+	res, err := upload(path, data, u.state.token())
 	if err != nil {
 		var rej *RejectedError
 		if errors.As(err, &rej) {

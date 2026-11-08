@@ -72,9 +72,8 @@ func looksLikeReplay(data []byte) bool {
 	return len(data) >= 64 && bytes.HasPrefix(data, []byte("MPQ")) && (data[3] == 0x1a || data[3] == 0x1b)
 }
 
-// upload sends one replay anonymously. The site needs no account for this;
-// linking only attributes the upload afterwards (claim).
-func upload(path string, data []byte) (*UploadResult, error) {
+// upload sends the linked account token so the site's signed-in upload limit applies.
+func upload(path string, data []byte, token string) (*UploadResult, error) {
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	part, err := mw.CreateFormFile("replay", filepath.Base(path))
@@ -94,6 +93,9 @@ func upload(path string, data []byte) (*UploadResult, error) {
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set("User-Agent", userAgent())
 	req.Header.Set("Accept", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	req.ContentLength = int64(body.Len())
 
 	res, err := httpClient.Do(req)
