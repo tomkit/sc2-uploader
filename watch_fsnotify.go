@@ -29,7 +29,7 @@ func newDirWatcher() (dirWatcher, error) {
 					return
 				}
 				if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename) != 0 {
-					fw.paths <- ev.Name
+					fw.publish(ev.Name)
 				}
 			case err, ok := <-w.Errors:
 				if !ok {
@@ -43,6 +43,19 @@ func newDirWatcher() (dirWatcher, error) {
 		}
 	}()
 	return fw, nil
+}
+
+func (f *fsnotifyWatcher) publish(path string) {
+	select {
+	case f.paths <- path:
+	default:
+		// An upload may hold the main loop while Windows sends many
+		// write events. Rescan instead of blocking the OS watcher.
+		select {
+		case f.errs <- errDropped:
+		default:
+		}
+	}
 }
 
 func (f *fsnotifyWatcher) Add(dir string) error { return f.w.Add(dir) }

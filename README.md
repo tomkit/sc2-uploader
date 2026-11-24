@@ -47,7 +47,7 @@ Data lives in `~/Library/Application Support/sc2-uploader` on macOS and `%LOCALA
 
 ```sh
 go test -race ./...
-V=v0.2.1; LD="-s -w -X main.version=$V"
+V=v0.2.2; LD="-s -w -X main.version=$V"
 CGO_ENABLED=1 GOARCH=arm64 CC="clang -arch arm64"  go build -trimpath -ldflags "$LD" -o dist/sc2-uploader-darwin-arm64 .
 CGO_ENABLED=1 GOARCH=amd64 CC="clang -arch x86_64" go build -trimpath -ldflags "$LD" -o dist/sc2-uploader-darwin-amd64 .
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64            go build -trimpath -ldflags "$LD" -o dist/sc2-uploader-windows-amd64.exe .
